@@ -26,7 +26,20 @@ export const BaiduBookTile: React.FC<BaiduBookTileProps> = ({
   onOpen,
 }) => {
   const t = useTranslation()
-  const [error, setError] = useState(false)
+  // 保留失败原因：下载失败可能是鉴权、目录校验或百度接口返回，笼统提示无法定位。
+  const [error, setError] = useState<string>()
+
+  const onFailure = (cause: unknown) =>
+    setError(
+      cause instanceof Error && cause.message
+        ? cause.message
+        : t('baidu.error'),
+    )
+
+  const open = () => {
+    setError(undefined)
+    void onOpen(book).catch(onFailure)
+  }
 
   return (
     <li className="relative flex min-w-0 flex-col">
@@ -35,10 +48,7 @@ export const BaiduBookTile: React.FC<BaiduBookTileProps> = ({
         className="border-inverse-on-surface relative w-full border text-left"
         aria-label={`${t('baidu.source')}: ${book.server_filename}`}
         disabled={loading}
-        onClick={() => {
-          setError(false)
-          void onOpen(book).catch(() => setError(true))
-        }}
+        onClick={open}
       >
         <span
           className={clsx(
@@ -70,15 +80,9 @@ export const BaiduBookTile: React.FC<BaiduBookTileProps> = ({
       {error && (
         <div className="mt-1">
           <p className="typescale-body-small text-red-600" role="alert">
-            {t('baidu.error')}
+            {error}
           </p>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setError(false)
-              void onOpen(book).catch(() => setError(true))
-            }}
-          >
+          <Button variant="secondary" onClick={open}>
             {t('baidu.retry')}
           </Button>
         </div>

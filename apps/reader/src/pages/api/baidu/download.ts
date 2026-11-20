@@ -40,6 +40,8 @@ export default async function handler(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Baidu EPUB download failed'
+    // 只记录失败原因，不记录令牌、dlink 或文件内容，便于在容器日志里定位抓取失败。
+    console.error('[baidu/download]', message)
     const status =
       message.includes('not authorized') || message.includes('reauthorization')
         ? 401

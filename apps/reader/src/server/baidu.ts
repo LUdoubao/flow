@@ -314,20 +314,27 @@ export async function downloadBaiduEpub(accessToken: string, fsId: string) {
   >
   const file = metadata.list?.[0]
 
+  // 分段给出可定位的失败原因，避免把鉴权、errno 与目录校验混成一句笼统提示。
+  if (!metadataResponse.ok || metadata.errno !== 0) {
+    throw new Error(
+      `Baidu file metadata failed (HTTP ${metadataResponse.status}, errno ${
+        metadata.errno
+      }${metadata.show_msg ? `: ${metadata.show_msg}` : ''})`,
+    )
+  }
+  if (!file) throw new Error('Baidu file metadata returned no entry')
+  if (!file.dlink)
+    throw new Error('Baidu file metadata returned no download link')
   if (
-    !metadataResponse.ok ||
-    metadata.errno !== 0 ||
-    !file?.dlink ||
     !file.path.startsWith(`${APP_DIRECTORY}/`) ||
     !file.server_filename.toLowerCase().endsWith('.epub')
   ) {
-    throw new Error(
-      metadata.show_msg ||
-        'Baidu EPUB metadata unavailable or outside the app directory',
-    )
+    throw new Error('Baidu file is outside the authorized app directory')
   }
   if (file.size > MAX_EPUB_BYTES) {
-    throw new Error('This EPUB exceeds the 50 MiB browser download limit')
+    throw new Error(
+      `This EPUB exceeds the 50 MiB browser download limit (${file.size} bytes)`,
+    )
   }
 
   // dlink 必须是 HTTPS；拒绝异常 scheme，避免签名链接被当作任意协议请求。
@@ -342,7 +349,11 @@ export async function downloadBaiduEpub(accessToken: string, fsId: string) {
     headers: { 'User-Agent': 'pan.baidu.com' },
   })
   if (!downloadResponse.ok) {
-    throw new Error(`Baidu EPUB download failed (${downloadResponse.status})`)
+    throw new Error(
+      `Baidu EPUB download failed (HTTP ${downloadResponse.status}, ${
+        downloadResponse.headers.get('content-type') || 'unknown content type'
+      })`,
+    )
   }
   const contentLength = Number(
     downloadResponse.headers.get('content-length') || 0,
@@ -360,7 +371,13 @@ export async function downloadBaiduEpub(accessToken: string, fsId: string) {
     signature[2] !== 0x03 ||
     signature[3] !== 0x04
   ) {
-    throw new Error('Baidu returned data that is not a valid EPUB/ZIP file')
+    throw new Error(
+      `Baidu returned data that is not a valid EPUB/ZIP file (${
+        bytes.byteLength
+      } bytes, ${
+        downloadResponse.headers.get('content-type') || 'unknown content type'
+      })`,
+    )
   }
 
   return { bytes, filename: file.server_filename }
