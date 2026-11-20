@@ -15,6 +15,7 @@ const withTM = require('next-transpile-modules')([
 
 const IS_DEV = process.env.NODE_ENV === 'development'
 const IS_DOCKER = process.env.DOCKER
+const BASE_PATH = process.env.FLOW_BASE_PATH || ''
 
 /**
  * @type {import('@sentry/nextjs').SentryWebpackPluginOptions}
@@ -35,6 +36,11 @@ const sentryWebpackPluginOptions = {
  * @type {import('next').NextConfig}
  **/
 const config = {
+  // Next.js 构建时统一加子路径；同一前缀也提供给手写的 API 和 PWA URL。
+  basePath: BASE_PATH,
+  env: {
+    NEXT_PUBLIC_BASE_PATH: BASE_PATH,
+  },
   pageExtensions: ['ts', 'tsx'],
   webpack(config) {
     return config

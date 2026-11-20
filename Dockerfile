@@ -1,50 +1,35 @@
-# https://github.com/vercel/turborepo/blob/a2a04ed4eba28602c7cdb36377c75a2f7007e90d/examples/with-docker/apps/web/Dockerfile
-
-FROM node:18-alpine AS builder
-# Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
-RUN apk add --no-cache libc6-compat
-RUN apk update
-# Set working directory
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
-RUN yarn global add turbo
+RUN corepack enable && corepack prepare pnpm@10.6.4 --activate
 COPY . .
-# Only Take packages that are needed to compile this app
-RUN turbo prune --scope=@flow/reader --docker
+RUN pnpm dlx turbo@1.11.3 prune --scope=@flow/reader --docker
 
-# Add lockfile and package.json's of isolated subworkspace
-FROM node:18-alpine AS installer
-RUN apk add --no-cache libc6-compat
-RUN apk update
+FROM node:20-bookworm-slim AS installer
 WORKDIR /app
-
-# First install the dependencies (as they change less often)
+RUN corepack enable && corepack prepare pnpm@10.6.4 --activate
 COPY .gitignore .gitignore
-COPY --from=builder /app/out/json/ .
-COPY --from=builder /app/out/pnpm-*.yaml .
-RUN corepack enable
-RUN pnpm i --frozen-lockfile
-
-# Build the project
-COPY --from=builder /app/out/full/ .
+COPY --from=builder /app/out/json/ ./
+COPY --from=builder /app/out/pnpm-*.yaml ./
+# turbo prune 1.11.3 生成的裁剪锁文件会遗漏根 workspace 的部分条目。
+RUN pnpm install --no-frozen-lockfile
+COPY --from=builder /app/out/full/ ./
 COPY turbo.json turbo.json
-COPY tsconfig.*json .
+COPY tsconfig.*json ./
+ARG FLOW_BASE_PATH=/flow
+RUN DOCKER=1 FLOW_BASE_PATH=${FLOW_BASE_PATH} pnpm --filter @flow/reader build
 
-RUN DOCKER=1 pnpm -F reader build
-
-FROM node:18-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 WORKDIR /app
-
-# Don't run production as root
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Standalone 输出需要在运行时读取 public 下的 PWA 文件。
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV FLOW_BASE_PATH=/flow
 USER nextjs
-
-COPY --from=installer /app/apps/reader/next.config.js .
-COPY --from=installer /app/apps/reader/package.json .
-
-# Automatically leverage output traces to reduce image size
-# https://nextjs.org/docs/advanced-features/output-file-tracing
+COPY --from=installer /app/apps/reader/next.config.js ./apps/reader/next.config.js
+COPY --from=installer /app/apps/reader/package.json ./apps/reader/package.json
+COPY --from=installer --chown=nextjs:nodejs /app/apps/reader/public ./apps/reader/public
 COPY --from=installer --chown=nextjs:nodejs /app/apps/reader/.next/standalone ./
 COPY --from=installer --chown=nextjs:nodejs /app/apps/reader/.next/static ./apps/reader/.next/static
-
-CMD node apps/reader/server.js
+CMD ["node", "apps/reader/server.js"]

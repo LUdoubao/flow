@@ -24,7 +24,8 @@ dbx.auth.refreshAccessToken = () => {
     // `reject` to skip subsequent api requests
     return Promise.reject()
   }
-  _req ??= fetch(`/api/refresh`)
+  // API 请求必须带 Next.js basePath，否则子路径部署会落到域名根路由。
+  _req ??= fetch(`${process.env.NEXT_PUBLIC_BASE_PATH}/api/refresh`)
     .then((res) => res.json())
     .then((data) => {
       dbx.auth.setAccessToken(data.accessToken)

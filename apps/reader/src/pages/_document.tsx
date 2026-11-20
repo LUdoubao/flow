@@ -1,5 +1,8 @@
 import { Html, Head, Main, NextScript } from 'next/document'
 
+/**
+ * 输出阅读器的 HTML 外壳和 PWA 元数据；资源路径遵循 Next.js 子路径配置。
+ */
 export default function Document() {
   return (
     // https://github.com/vercel/next.js/issues/10285
@@ -8,7 +11,10 @@ export default function Document() {
     <Html className="bg-default">
       <Head>
         <GoogleTagManager />
-        <link rel="icon" href="/icons/192.png"></link>
+        <link
+          rel="icon"
+          href={`${process.env.NEXT_PUBLIC_BASE_PATH}/icons/192.png`}
+        ></link>
         <PWA />
         <PreventFlash />
       </Head>
@@ -22,11 +28,14 @@ export default function Document() {
 }
 
 function PWA() {
+  // 图标和 manifest 必须留在阅读器的 basePath 下，避免请求域名根站点资源。
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH
+
   return (
     <>
-      <link rel="manifest" href="/manifest.json" />
+      <link rel="manifest" href={`${basePath}/manifest.json`} />
       <meta id="theme-color" name="theme-color" content={background.light} />
-      <link rel="apple-touch-icon" href="/icons/192.png" />
+      <link rel="apple-touch-icon" href={`${basePath}/icons/192.png`} />
     </>
   )
 }

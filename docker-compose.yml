@@ -8,6 +8,4 @@ services:
       dockerfile: ./Dockerfile
     restart: always
     ports:
-      - 3000:3000
-    env_file:
-      - ./apps/reader/.env.local
+      - 172.17.0.1:3000:3000

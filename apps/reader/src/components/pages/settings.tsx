@@ -9,10 +9,10 @@ import {
   useForceRender,
   useTranslation,
 } from '@flow/reader/hooks'
-import { localeNames } from '@flow/reader/locales'
 import { useSettings } from '@flow/reader/state'
 import { dbx, mapToToken, OAUTH_SUCCESS_MESSAGE } from '@flow/reader/sync'
 
+import { localeNames } from '../../../locales'
 import { Button } from '../Button'
 import { Checkbox, Select } from '../Form'
 import { Page } from '../Page'
@@ -84,6 +84,7 @@ export const Settings: React.FC = () => {
 }
 
 const Synchronization: React.FC = () => {
+  const { basePath } = useRouter()
   const cookies = parseCookies()
   const refreshToken = cookies[mapToToken['dropbox']]
   const render = useForceRender()
@@ -115,8 +116,9 @@ const Synchronization: React.FC = () => {
         ) : (
           <Button
             onClick={() => {
+              // OAuth 回调须匹配部署前缀，也必须与 Dropbox 应用登记的回调地址一致。
               const redirectUri =
-                window.location.origin + '/api/callback/dropbox'
+                window.location.origin + `${basePath}/api/callback/dropbox`
 
               dbx.auth
                 .getAuthenticationUrl(

@@ -5,6 +5,12 @@ import { mapToToken } from '@flow/reader/sync'
 
 import { dbx } from '../utils'
 
+/**
+ * 处理 Dropbox OAuth 回调，将授权结果写入 Cookie 后返回阅读器页面。
+ *
+ * @param req Next.js API 请求，需包含 OAuth state 与 code
+ * @param res Next.js API 响应，用于写 Cookie 或发送错误状态和重定向
+ */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
@@ -31,5 +37,6 @@ export default async function handler(
   })
 
   // https://stackoverflow.com/questions/4694089/sending-browser-cookies-during-a-302-redirect
-  res.redirect(302, '/success')
+  // 回调成功后回到带 basePath 的应用页面，避免落入同域其他站点。
+  res.redirect(302, `${process.env.NEXT_PUBLIC_BASE_PATH}/success`)
 }
