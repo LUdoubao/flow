@@ -9,3 +9,5 @@ services:
     restart: always
     ports:
       - 172.17.0.1:3000:3000
+    env_file:
+      - ./apps/reader/.env.local

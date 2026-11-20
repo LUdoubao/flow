@@ -15,6 +15,7 @@ import { useSet } from 'react-use'
 import { usePrevious } from 'react-use'
 
 import { ReaderGridView, Button, TextField, DropZone } from '../components'
+import { BaiduDrive } from '../components/BaiduDrive'
 import { BookRecord, CoverRecord, db } from '../db'
 import { addFile, fetchBook, handleFiles } from '../file'
 import {
@@ -184,6 +185,7 @@ const Library: React.FC = () => {
       }}
     >
       <div className="mb-4 space-y-2.5">
+        <BaiduDrive />
         <div>
           <TextField
             name={SOURCE}
