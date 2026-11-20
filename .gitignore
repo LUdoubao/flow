@@ -38,3 +38,4 @@ yarn-error.log*
 **/public/workbox-*
 **/public/sw.*
 **/public/fallback-*
+/.agent-workflow/AW-FLOW-IMPL-20261120-BAIDU-LIBRARY-GRID-C239019E/
