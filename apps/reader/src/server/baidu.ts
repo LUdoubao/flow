@@ -24,9 +24,12 @@ interface BaiduTokenResponse {
 interface BaiduFile {
   fs_id: string
   path: string
-  server_filename: string
-  size: number
-  isdir: number
+  /** file/list 返回的文件名。 */
+  server_filename?: string
+  /** multimedia?method=filemetas 返回的文件名，与 file/list 的字段名不同。 */
+  filename?: string
+  size?: number
+  isdir?: number
 }
 
 interface BaiduApiResponse<T> {
@@ -242,12 +245,14 @@ export async function listBaiduEpubs(accessToken: string, start = 0) {
   }
 
   const allFiles = result.list || []
-  const epubFiles = allFiles.filter(
-    (file) =>
+  const epubFiles = allFiles.filter((file) => {
+    const name = resolveBaiduFileName(file)
+    return (
       file.isdir === 0 &&
       file.path.startsWith(`${APP_DIRECTORY}/`) &&
-      file.server_filename.toLowerCase().endsWith('.epub'),
-  )
+      name.toLowerCase().endsWith('.epub')
+    )
+  })
 
   return {
     files: epubFiles,
@@ -325,13 +330,18 @@ export async function downloadBaiduEpub(accessToken: string, fsId: string) {
   if (!file) throw new Error('Baidu file metadata returned no entry')
   if (!file.dlink)
     throw new Error('Baidu file metadata returned no download link')
+  if (file.isdir !== undefined && file.isdir !== 0)
+    throw new Error('Baidu file metadata refers to a directory')
+
+  // 两个接口的文件名字段不同；统一解析后再做目录与扩展名校验。
+  const fileName = resolveBaiduFileName(file)
   if (
     !file.path.startsWith(`${APP_DIRECTORY}/`) ||
-    !file.server_filename.toLowerCase().endsWith('.epub')
+    !fileName.toLowerCase().endsWith('.epub')
   ) {
     throw new Error('Baidu file is outside the authorized app directory')
   }
-  if (file.size > MAX_EPUB_BYTES) {
+  if (Number(file.size) > MAX_EPUB_BYTES) {
     throw new Error(
       `This EPUB exceeds the 50 MiB browser download limit (${file.size} bytes)`,
     )
@@ -380,7 +390,23 @@ export async function downloadBaiduEpub(accessToken: string, fsId: string) {
     )
   }
 
-  return { bytes, filename: file.server_filename }
+  return { bytes, filename: fileName }
+}
+
+/**
+ * 解析百度文件条目的文件名：file/list 用 server_filename，multimedia filemetas 用 filename，
+ * 两者都缺失时退回路径 basename，避免下游按未定义字段做小写比较而中断下载。
+ *
+ * @param file 百度列表或元数据条目
+ * @returns 文件名，无法解析时为空字符串
+ */
+function resolveBaiduFileName(file: BaiduFile) {
+  return (
+    file.server_filename ||
+    file.filename ||
+    file.path.split('/').filter(Boolean).pop() ||
+    ''
+  )
 }
 
 /** 删除全部百度网盘授权 Cookie。 */
