@@ -29,6 +29,13 @@ export interface BookRecord {
   percentage?: number
   definitions: string[]
   annotations: Annotation[]
+  /** 来源标识；缺省表示用户从本地导入的书籍。 */
+  source?: {
+    /** 云盘提供方，目前仅记录百度网盘。 */
+    provider: 'baidu'
+    /** 百度网盘文件 ID，以十进制字符串保存以避免 uint64 精度损失。 */
+    fsId: string
+  }
   configuration?: {
     typography?: TypographyConfiguration
   }

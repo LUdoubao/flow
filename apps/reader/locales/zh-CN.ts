@@ -53,6 +53,8 @@ export default {
   'settings.synchronization.authorize': '授权',
   'settings.synchronization.unauthorize': '取消授权',
   'baidu.title': '百度网盘 EPUB',
+  'baidu.source': '百度网盘',
+  'baidu.retry': '重试',
   'baidu.directory': '仅显示已授权应用目录中的文件。',
   'baidu.authorize': '连接百度网盘',
   'baidu.unauthorize': '断开连接',

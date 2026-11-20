@@ -15,9 +15,10 @@ import { useSet } from 'react-use'
 import { usePrevious } from 'react-use'
 
 import { ReaderGridView, Button, TextField, DropZone } from '../components'
-import { BaiduDrive } from '../components/BaiduDrive'
+import { BaiduBookTile } from '../components/BaiduBookTile'
+import { BaiduDrive, BaiduEpub } from '../components/BaiduDrive'
 import { BookRecord, CoverRecord, db } from '../db'
-import { addFile, fetchBook, handleFiles } from '../file'
+import { addBaiduBook, addFile, fetchBook, handleFiles } from '../file'
 import {
   useDisablePinchZooming,
   useLibrary,
@@ -100,6 +101,8 @@ const Library: React.FC = () => {
   const books = useLibrary()
   const covers = useLiveQuery(() => db?.covers.toArray() ?? [])
   const t = useTranslation('home')
+  // 百度相关文案使用全局命名空间，与 BaiduDrive/BaiduBookTile 共用同一组 key。
+  const tb = useTranslation()
 
   const { data: remoteBooks, mutate: mutateRemoteBooks } = useRemoteBooks()
   const { data: remoteFiles, mutate: mutateRemoteFiles } = useRemoteFiles()
@@ -111,6 +114,8 @@ const Library: React.FC = () => {
 
   const [loading, setLoading] = useState<string | undefined>()
   const [readyToSync, setReadyToSync] = useState(false)
+  const [baiduFiles, setBaiduFiles] = useState<BaiduEpub[]>([])
+  const [baiduError, setBaiduError] = useState<string>()
 
   const { groups } = useReaderSnapshot()
 
@@ -120,9 +125,13 @@ const Library: React.FC = () => {
       db?.books.toArray().then((books) => {
         if (books.length === 0) return
 
-        const newRemoteBooks = remoteFiles.map((f) =>
-          books.find((b) => b.name === f.name),
-        ) as BookRecord[]
+        const newRemoteBooks = remoteFiles.flatMap((file) => {
+          // 只匹配本地来源书目，避免同名百度网盘书被当成 Dropbox 同步对象。
+          const book = books.find(
+            (candidate) => !candidate.source && candidate.name === file.name,
+          )
+          return book ? [book] : []
+        })
 
         uploadData(newRemoteBooks)
         mutateRemoteBooks(newRemoteBooks, { revalidate: false })
@@ -143,7 +152,10 @@ const Library: React.FC = () => {
 
     db?.books.toArray().then(async (books) => {
       for (const remoteFile of remoteFiles) {
-        const book = books.find((b) => b.name === remoteFile.name)
+        const book = books.find(
+          (candidate) =>
+            !candidate.source && candidate.name === remoteFile.name,
+        )
         if (!book) continue
 
         const file = await db?.files.get(book.id)
@@ -168,10 +180,60 @@ const Library: React.FC = () => {
   if (groups.length) return null
   if (!books) return null
 
-  const selectedBooks = [...selectedBookIds].map(
-    (id) => books.find((b) => b.id === id)!,
-  )
-  const allSelected = selectedBookIds.size === books.length
+  const localBooks = books.filter((book) => !book.source)
+  const baiduBooks = books.filter((book) => book.source?.provider === 'baidu')
+  // 列表可能在选择模式下刷新；先丢弃已消失的主键，避免批量操作访问空记录。
+  const selectedBooks = [...selectedBookIds].flatMap((id) => {
+    const book = books.find((item) => item.id === id)
+    return book ? [book] : []
+  })
+  // 百度书已缓存完整 FileRecord，可参与本地选择/导出/删除；Dropbox 操作仍只作用本地来源书。
+  const selectableBooks = [...localBooks, ...baiduBooks]
+  const allSelected =
+    selectableBooks.length > 0 && selectableBooks.every((book) => has(book.id))
+
+  /**
+   * 下载并缓存百度网盘书籍，或直接打开已缓存的副本。
+   *
+   * <p>按 fs_id 复用既有来源记录；若本地 FileRecord 已被删除，则重新下载补齐，
+   * 使已缓存的磁贴仍能从书库恢复到可阅读状态。下载或写库失败时抛出错误，由调用方提示重试。</p>
+   *
+   * @param fsId 百度网盘文件 ID，跨刷新稳定的远端身份
+   * @param fileName 创建 File 时使用的显示文件名
+   */
+  const openBaiduBook = async (fsId: string, fileName: string) => {
+    setBaiduError(undefined)
+    setLoading(`baidu:${fsId}`)
+    try {
+      const cached = books.find(
+        (book) =>
+          book.source?.provider === 'baidu' && book.source.fsId === fsId,
+      )
+      if (cached && (await db?.files.get(cached.id))) {
+        reader.addTab(cached)
+        return
+      }
+
+      const response = await fetch(
+        `${
+          process.env.NEXT_PUBLIC_BASE_PATH || ''
+        }/api/baidu/download?fsid=${encodeURIComponent(fsId)}`,
+      )
+      if (!response.ok) {
+        const result = (await response.json()) as { error?: string }
+        throw new Error(result.error || tb('baidu.error'))
+      }
+
+      // 下载结果先转 File，再由 addBaiduBook 在事务内按 fs_id 幂等写入本地书库。
+      const file = new File([await response.blob()], fileName, {
+        type: 'application/epub+zip',
+      })
+      const book = await addBaiduBook(fsId, file)
+      reader.addTab(book)
+    } finally {
+      setLoading(undefined)
+    }
+  }
 
   return (
     <DropZone
@@ -185,7 +247,6 @@ const Library: React.FC = () => {
       }}
     >
       <div className="mb-4 space-y-2.5">
-        <BaiduDrive />
         <div>
           <TextField
             name={SOURCE}
@@ -213,9 +274,16 @@ const Library: React.FC = () => {
           />
         </div>
         <div className="flex items-center justify-between gap-4">
-          <div className="space-x-2">
-            {books.length ? (
-              <Button variant="secondary" onClick={toggleSelect}>
+          <div className="flex flex-wrap items-center gap-2">
+            <BaiduDrive onFilesChange={setBaiduFiles} />
+            {selectableBooks.length ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  reset()
+                  toggleSelect()
+                }}
+              >
                 {t(select ? 'cancel' : 'select')}
               </Button>
             ) : (
@@ -239,14 +307,14 @@ const Library: React.FC = () => {
               ) : (
                 <Button
                   variant="secondary"
-                  onClick={() => books.forEach((b) => add(b.id))}
+                  onClick={() => selectableBooks.forEach((b) => add(b.id))}
                 >
                   {t('select_all')}
                 </Button>
               ))}
           </div>
 
-          <div className="space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             {select ? (
               <>
                 <Button
@@ -254,6 +322,7 @@ const Library: React.FC = () => {
                     toggleSelect()
 
                     for (const book of selectedBooks) {
+                      if (book.source) continue
                       const remoteFile = remoteFiles?.find(
                         (f) => f.name === book.name,
                       )
@@ -278,22 +347,29 @@ const Library: React.FC = () => {
                 <Button
                   onClick={async () => {
                     toggleSelect()
-                    const bookIds = [...selectedBookIds]
+                    // 删除选中的本地缓存/书目记录；百度来源不会调用 Dropbox 删除 API。
+                    const bookIds = selectedBooks.map((book) => book.id)
+                    if (bookIds.length === 0) return
 
                     db?.books.bulkDelete(bookIds)
                     db?.covers.bulkDelete(bookIds)
                     db?.files.bulkDelete(bookIds)
 
-                    // folder data is not updated after `filesDeleteBatch`
+                    // Dropbox 远端删除只作用于 Dropbox 来源书；百度网盘源文件绝不随本地删除联动删除。
+                    const dropboxBooks = selectedBooks.filter(
+                      (book) => !book.source,
+                    )
                     mutateRemoteFiles(
                       async (data) => {
-                        await dbx.filesDeleteBatch({
-                          entries: selectedBooks.map((b) => ({
-                            path: `/files/${b.name}`,
-                          })),
-                        })
+                        if (dropboxBooks.length > 0) {
+                          await dbx.filesDeleteBatch({
+                            entries: dropboxBooks.map((b) => ({
+                              path: `/files/${b.name}`,
+                            })),
+                          })
+                        }
                         return data?.filter(
-                          (f) => !selectedBooks.find((b) => b.name === f.name),
+                          (f) => !dropboxBooks.some((b) => b.name === f.name),
                         )
                       },
                       { revalidate: false },
@@ -332,6 +408,11 @@ const Library: React.FC = () => {
       </div>
 
       <div className="scroll h-full">
+        {baiduError && (
+          <p className="typescale-body-small mb-2 text-red-600" role="alert">
+            {baiduError}
+          </p>
+        )}
         <ul
           className="grid"
           style={{
@@ -340,7 +421,7 @@ const Library: React.FC = () => {
             rowGap: lock(24, 40),
           }}
         >
-          {books.map((book) => (
+          {localBooks.map((book) => (
             <Book
               key={book.id}
               book={book}
@@ -351,6 +432,51 @@ const Library: React.FC = () => {
               toggle={toggle}
             />
           ))}
+          {baiduBooks.map((book) => {
+            const fsId = book.source?.fsId
+            if (!fsId) return null
+            return (
+              <Book
+                key={book.id}
+                book={book}
+                covers={covers}
+                remoteFile={{ name: book.name }}
+                select={select}
+                selected={has(book.id)}
+                loading={loading === `baidu:${fsId}`}
+                // 缓存记录可能缺少文件字节：点击时按 fs_id 重新下载补齐。
+                onOpen={async () => {
+                  try {
+                    await openBaiduBook(fsId, book.name)
+                  } catch (cause) {
+                    setBaiduError(
+                      cause instanceof Error
+                        ? cause.message
+                        : tb('baidu.error'),
+                    )
+                  }
+                }}
+                toggle={toggle}
+              />
+            )
+          })}
+          {baiduFiles
+            .filter(
+              (remoteBook) =>
+                !baiduBooks.some(
+                  (book) => book.source?.fsId === remoteBook.fs_id,
+                ),
+            )
+            .map((remoteBook) => (
+              <BaiduBookTile
+                key={`baidu:${remoteBook.fs_id}`}
+                book={remoteBook}
+                loading={loading === `baidu:${remoteBook.fs_id}`}
+                onOpen={(target) =>
+                  openBaiduBook(target.fs_id, target.server_filename)
+                }
+              />
+            ))}
         </ul>
       </div>
     </DropZone>
@@ -364,6 +490,9 @@ interface BookProps {
   selected?: boolean
   loading?: boolean
   toggle: (id: string) => void
+  remoteFile?: { name: string }
+  /** 百度来源磁贴的打开入口；本地文件缺失时由它负责重新下载补齐。 */
+  onOpen?: () => Promise<void>
 }
 const Book: React.FC<BookProps> = ({
   book,
@@ -372,14 +501,18 @@ const Book: React.FC<BookProps> = ({
   selected,
   loading,
   toggle,
+  remoteFile: remoteFileOverride,
+  onOpen,
 }) => {
+  const t = useTranslation()
   const remoteFiles = useRemoteFiles()
 
   const router = useRouter()
   const mobile = useMobile()
 
   const cover = covers?.find((c) => c.id === book.id)?.cover
-  const remoteFile = remoteFiles.data?.find((f) => f.name === book.name)
+  const remoteFile =
+    remoteFileOverride || remoteFiles.data?.find((f) => f.name === book.name)
 
   const Icon = selected ? MdCheckBox : MdCheckBoxOutlineBlank
 
@@ -391,10 +524,16 @@ const Book: React.FC<BookProps> = ({
         onClick={async () => {
           if (select) {
             toggle(book.id)
-          } else {
-            if (mobile) await router.push('/_')
-            reader.addTab(book)
+            return
           }
+
+          if (mobile) await router.push('/_')
+          // 百度来源磁贴可能缺少本地文件字节，交由 onOpen 重新下载补齐后再打开。
+          if (onOpen) {
+            await onOpen()
+            return
+          }
+          reader.addTab(book)
         }}
       >
         <div
@@ -431,13 +570,19 @@ const Book: React.FC<BookProps> = ({
         className="line-clamp-2 text-on-surface-variant typescale-body-small lg:typescale-body-medium mt-2 w-full"
         title={book.name}
       >
-        <MdCheckCircle
-          className={clsx(
-            'mr-1 mb-0.5 inline',
-            remoteFile ? 'text-tertiary' : 'text-surface-variant',
-          )}
-          size={16}
-        />
+        {book.source?.provider === 'baidu' ? (
+          <span className="mr-1 rounded bg-black/60 px-1 text-xs text-white">
+            {t('baidu.source')}
+          </span>
+        ) : (
+          <MdCheckCircle
+            className={clsx(
+              'mr-1 mb-0.5 inline',
+              remoteFile ? 'text-tertiary' : 'text-surface-variant',
+            )}
+            size={16}
+          />
+        )}
         {book.name}
       </div>
     </div>

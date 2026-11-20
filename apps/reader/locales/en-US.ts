@@ -53,6 +53,8 @@ export default {
   'settings.synchronization.authorize': 'Authorize',
   'settings.synchronization.unauthorize': 'Unauthorize',
   'baidu.title': 'Baidu Netdisk EPUBs',
+  'baidu.source': 'Baidu Netdisk',
+  'baidu.retry': 'Retry',
   'baidu.directory': 'Only files in the authorized app folder are listed.',
   'baidu.authorize': 'Connect Baidu Netdisk',
   'baidu.unauthorize': 'Disconnect',

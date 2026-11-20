@@ -53,6 +53,8 @@ export default {
   'settings.synchronization.authorize': '認証',
   'settings.synchronization.unauthorize': '認証解除',
   'baidu.title': '百度ネットディスクのEPUB',
+  'baidu.source': '百度ネットディスク',
+  'baidu.retry': '再試行',
   'baidu.directory': '認証済みアプリフォルダー内のファイルのみ表示します。',
   'baidu.authorize': '百度ネットディスクに接続',
   'baidu.unauthorize': '接続を解除',

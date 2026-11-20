@@ -53,6 +53,8 @@ export default {
   'settings.synchronization.authorize': 'Autorisieren',
   'settings.synchronization.unauthorize': 'Deautorisieren',
   'baidu.title': 'Baidu-Netdisk-EPUBs',
+  'baidu.source': 'Baidu Netdisk',
+  'baidu.retry': 'Erneut versuchen',
   'baidu.directory':
     'Es werden nur Dateien im autorisierten App-Ordner angezeigt.',
   'baidu.authorize': 'Baidu Netdisk verbinden',
